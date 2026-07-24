@@ -134,11 +134,6 @@ v_loss = (v_targets_norm - vals_norm).pow(2).mean()
 
 A2C 策略以 121 次灭火（+23%）和更低火灾损失（−4%）超越了贪心最近 baseline。这表明在**多智能体并发决策存在冲突**的场景下（例如两架直升机竞争同一个火点），学习型策略确实能够发现优于规则化调度的高效分配。
 
-### 4.6 消融与调试记录
-
-- **"BASE target=-1" 卡死 bug**：智能体指派去基地时 `agent_busy=True` 但 `target<0` 跳过移动循环 → `_on_arrival` 永不调用 → 智能体永久"卡住"。修复：指派基地时立即设 `busy=False`。
-- **坐标映射越界**：动态火点数变化导致 coord 序列长度不固定。修复：固定 coord 序列结构 `[base, patrol_pts, all_grid_cells, agents]`，仅通过 mask 区分有效火点。
-- **Loss 量级失衡**：policy loss ≈ 0.1，value loss ≈ 167,000。修复：running statistics 归一化 V targets + 消融 value network 改用 EMA baseline，最终回到带归一化 V targets 的 A2C。
 
 ---
 
