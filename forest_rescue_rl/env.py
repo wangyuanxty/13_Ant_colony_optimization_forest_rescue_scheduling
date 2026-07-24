@@ -18,7 +18,7 @@ class ForestRescueEnv:
         self.agent_types = (['drone'] * n_drones + ['heli'] * n_helis
                             + ['ground'] * n_ground)
         self.speeds = {'drone': 120., 'heli': 60., 'ground': 10.}
-        self.max_range = {'drone': 300., 'heli': 500., 'ground': 9999.}
+        self.max_range = {'drone': 9999., 'heli': 9999., 'ground': 9999.}
         self.grid_size = 8; self.max_t = 100
 
     def reset(self, n_patrol=None, n_drones=None, n_helis=None, n_ground=None,
@@ -40,6 +40,7 @@ class ForestRescueEnv:
         self.agent_range_used = [0.0] * self.n_agents
         # Fires: grid-based
         self.fire_prob = fire_prob; self.spread_prob = spread_prob
+        self.reignite = True  # extinguished cells can re-ignite
         self.fire_grid = torch.zeros(self.grid_size, self.grid_size)
         self.transport_done = torch.zeros(self.grid_size, self.grid_size, dtype=torch.bool)
         # Weather: no-fly edges
@@ -203,9 +204,9 @@ class ForestRescueEnv:
                         tn.append(idx)
                     else:
                         fr.append(idx)
-        return {'drone': uv + ([-1] if not uv else []),
-                'heli': tn + ([-1] if not tn else []),
-                'ground': fr + ([-1] if not fr else [])}
+        return {'drone': uv,
+                'heli': tn,
+                'ground': fr}
 
     def filter_in_range(self, ai, candidates):
         """Remove candidates that exceed agent's remaining range."""

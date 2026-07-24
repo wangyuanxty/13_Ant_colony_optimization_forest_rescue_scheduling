@@ -49,13 +49,28 @@ def train_a2c(n_episodes=500, log_interval=20, update_steps=10):
     c_opt = torch.optim.Adam(critic.parameters(), lr=1e-3)
     gamma = 0.99
     v_stats = {'n': 0, 'mean': 0.0, 'std': 100.0}
+    best_v = float('inf')
     hist = {'p_loss': [], 'v_loss': [], 'ext': [], 'cov': [], 'dam': [], 'dist': []}
+    start_ep = 0
 
-    for ep in range(n_episodes):
-        state = env.reset(n_patrol=random.randint(20,50),
-                          n_drones=random.randint(2,4),
+    ckpt_path = os.path.join(BASE, "forest_rescue_rl", "ckpt.pt")
+    if os.path.exists(ckpt_path):
+        ckpt = torch.load(ckpt_path, map_location=device)
+        policy.net.load_state_dict(ckpt['net'])
+        policy.decoder.load_state_dict(ckpt['decoder'])
+        critic.load_state_dict(ckpt['critic'])
+        policy.opt.load_state_dict(ckpt['opt'])
+        c_opt.load_state_dict(ckpt['c_opt'])
+        v_stats = ckpt['v_stats']; best_v = ckpt['best_v']
+        hist = ckpt['hist']; start_ep = ckpt['ep'] + 1
+        print(f"Resumed from ep {start_ep}"); del ckpt
+
+    for ep in range(start_ep, n_episodes):
+        state = env.reset(n_patrol=random.randint(15,30),
+                          n_drones=random.randint(1,2),
                           n_helis=random.randint(2,3),
-                          n_ground=random.randint(2,3))
+                          n_ground=random.randint(1,2),
+                          fire_prob=0.05, spread_prob=0.5)
         buf = {'lps': [], 'advs': [], 'v_targets': [], 'vals': []}
         ep_reward = 0.0
 
@@ -76,12 +91,11 @@ def train_a2c(n_episodes=500, log_interval=20, update_steps=10):
                     ci = _env2coord(c, env.n_patrol, env.grid_size, off)
                     if ci >= 0 and ci not in taken: mask[ci] = True
                 pid = off['agents'][0] + ai
-                if mask.sum() <= 1 and mask[0].item():
-                    target_ci = 0
-                else:
-                    target_ci, lp = policy.act(h_enc, pid, policy.TYPE[at], mask)
-                    v = critic(h_enc[0, pid, :])
-                    buf['lps'].append(lp); buf['vals'].append(v)
+                if mask.sum() == 0:
+                    continue
+                target_ci, lp = policy.act(h_enc, pid, policy.TYPE[at], mask)
+                v = critic(h_enc[0, pid, :])
+                buf['lps'].append(lp); buf['vals'].append(v)
                 if target_ci != 0: taken.add(target_ci)
                 actions[ai] = _coord2env(target_ci, env.n_patrol, off)
 
@@ -123,6 +137,20 @@ def train_a2c(n_episodes=500, log_interval=20, update_steps=10):
         torch.cuda.empty_cache()
         hist['ext'].append(info['extinguished']); hist['cov'].append(info['covered'])
         hist['dam'].append(info['damage']); hist['dist'].append(info['dist'])
+
+        if hist['v_loss'][-1] < best_v:
+            best_v = hist['v_loss'][-1]
+            torch.save(policy.decoder.state_dict(),
+                       os.path.join(BASE, "forest_rescue_rl", "decoder_best.pth"))
+
+        if ep % 50 == 0:
+            torch.save({
+                'net': policy.net.state_dict(),
+                'decoder': policy.decoder.state_dict(),
+                'critic': critic.state_dict(),
+                'opt': policy.opt.state_dict(), 'c_opt': c_opt.state_dict(),
+                'v_stats': v_stats, 'best_v': best_v, 'hist': hist, 'ep': ep
+            }, ckpt_path)
 
         if ep % log_interval == 0:
             n = len(hist['p_loss'])

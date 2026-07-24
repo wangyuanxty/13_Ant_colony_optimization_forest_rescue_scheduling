@@ -19,7 +19,7 @@ def run_eval(env, policy_fn):
         np.random.seed(SEED + ep); random.seed(SEED + ep)
         torch.manual_seed(SEED + ep)
         state = env.reset(n_patrol=40, n_drones=3, n_helis=2, n_ground=3,
-                          fire_prob=0.005, spread_prob=0.1)
+                          fire_prob=0.05, spread_prob=0.5)
         t0 = time.time()
         for _ in range(env.max_t):
             actions = policy_fn(state, env)
@@ -35,8 +35,9 @@ def random_policy(state, env):
     avail = env.available_actions(); acts = {}
     for ai in range(env.n_agents):
         if env.agent_busy[ai]: continue
-        cand = env.filter_in_range(ai, [c for c in avail[env.agent_types[ai]] if c >= 0])
-        acts[ai] = random.choice(cand) if cand else -1
+        cand = env.filter_in_range(ai, avail[env.agent_types[ai]])
+        if not cand: continue  # idle if no valid target
+        acts[ai] = random.choice(cand)
     return acts
 
 
@@ -45,8 +46,8 @@ def nearest_policy(state, env):
     for ai in range(env.n_agents):
         if env.agent_busy[ai]: continue
         at = env.agent_types[ai]
-        cand = env.filter_in_range(ai, [c for c in avail[at] if c >= 0 and c not in taken])
-        if not cand: acts[ai] = -1; continue
+        cand = env.filter_in_range(ai, [c for c in avail[at] if c not in taken])
+        if not cand: continue
         pos = env.agent_pos[ai]
         best = min(cand, key=lambda c: float(torch.norm(env._point_pos(c) - pos)))
         taken.add(best)
@@ -68,8 +69,8 @@ def make_trained_fn(policy, device):
                 ci = _env2coord(c, env.n_patrol, env.grid_size, off)
                 if ci >= 0 and ci not in taken: mask[ci] = True
             pid = off['agents'][0] + ai
-            ci = 0 if mask.sum() <= 1 and mask[0].item() else \
-                 policy.act_greedy(h_enc, pid, policy.TYPE[at], mask)
+            if mask.sum() == 0: continue
+            ci = policy.act_greedy(h_enc, pid, policy.TYPE[at], mask)
             if ci != 0: taken.add(ci)
             acts[ai] = _coord2env(ci, env.n_patrol, off)
         return acts
@@ -90,10 +91,12 @@ if __name__ == '__main__':
           f"dist={n['dist'][0]:.0f}")
 
     best_path = os.path.join(os.path.dirname(__file__), "decoder_best.pth")
-    if os.path.exists(best_path):
+    final_path = os.path.join(os.path.dirname(__file__), "decoder_final.pth")
+    ckpt_path = best_path if os.path.exists(best_path) else final_path
+    if os.path.exists(ckpt_path):
         print("\nTrained policy:")
         pol = RescuePolicy(device=device)
-        pol.decoder.load_state_dict(torch.load(best_path, map_location=device))
+        pol.decoder.load_state_dict(torch.load(ckpt_path, map_location=device))
         t = run_eval(env, make_trained_fn(pol, device))
         print(f"  Trained: dam={t['dam'][0]:.0f}±{t['dam'][1]:.0f} "
               f"dist={t['dist'][0]:.0f}")
