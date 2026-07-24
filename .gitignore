@@ -1,0 +1,14 @@
+.claude/
+CLAUDE.md
+__pycache__/
+*.pyc
+*.pth
+*.pt
+*.png
+*.pkl
+*.gz
+.ipynb_checkpoints/
+*.zip
+*.mp4
+checkpoint/
+

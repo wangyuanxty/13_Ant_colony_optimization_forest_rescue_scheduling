@@ -1,0 +1,5 @@
+Starting att532: 1 runs, 30 ants, 1000 iter
+run 1/1 cur=109696.1 best=109696.1 avg=109696.1 2194s
+
+min=109696.1 mean=109696.1 max=109696.1 std=0.0
+paper_ACO=132242.11  жд=-17.0%
