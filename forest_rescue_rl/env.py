@@ -18,6 +18,7 @@ class ForestRescueEnv:
         self.agent_types = (['drone'] * n_drones + ['heli'] * n_helis
                             + ['ground'] * n_ground)
         self.speeds = {'drone': 120., 'heli': 60., 'ground': 10.}
+        self.max_range = {'drone': 300., 'heli': 500., 'ground': 9999.}
         self.grid_size = 8; self.max_t = 100
 
     def reset(self, n_patrol=None, n_drones=None, n_helis=None, n_ground=None,
@@ -36,6 +37,7 @@ class ForestRescueEnv:
         self.agent_pos = torch.zeros(self.n_agents, 2)
         self.agent_target = torch.full((self.n_agents,), -1, dtype=torch.long)
         self.agent_busy = torch.zeros(self.n_agents, dtype=torch.bool)
+        self.agent_range_used = [0.0] * self.n_agents
         # Fires: grid-based
         self.fire_prob = fire_prob; self.spread_prob = spread_prob
         self.fire_grid = torch.zeros(self.grid_size, self.grid_size)
@@ -72,10 +74,12 @@ class ForestRescueEnv:
             sp = self.speeds[self.agent_types[i]]
             if d <= sp:  # arrived
                 self.agent_pos[i] = tp.clone()
+                self.agent_range_used[i] += d
                 self._on_arrival(i)
             else:
                 self.agent_pos[i] += (tp - self.agent_pos[i]) / d * sp
                 self.flight_dist += sp
+                self.agent_range_used[i] += sp
 
         # Fire ignition + spread
         self.fire_grid += (torch.rand(self.grid_size, self.grid_size) < self.fire_prob).float()
@@ -116,6 +120,8 @@ class ForestRescueEnv:
 
     def _on_arrival(self, ai):
         t = self.agent_types[ai]; ti = self.agent_target[ai]
+        if ti < 0:  # arrived at base — reset range
+            self.agent_range_used[ai] = 0.0
         gx, gy = self._grid(self.agent_pos[ai])
         _DEBUG = False
         if _DEBUG: print(f"  _on_arrival: ai={ai} type={t} target={ti} pos={(gx,gy)} grid_fire={self.fire_grid[gx,gy].item()}")
@@ -185,7 +191,8 @@ class ForestRescueEnv:
                             self.no_fly_edges.add((j, i))
 
     def available_actions(self):
-        """Return per-type available point indices. -1 = base."""
+        """Return per-type available point indices. -1 = base.
+        Range-constrained: targets must be reachable + return to base."""
         uv = torch.where(~self.patrol_visited)[0].tolist()
         tn = []; fr = []
         for gx in range(self.grid_size):
@@ -199,3 +206,18 @@ class ForestRescueEnv:
         return {'drone': uv + ([-1] if not uv else []),
                 'heli': tn + ([-1] if not tn else []),
                 'ground': fr + ([-1] if not fr else [])}
+
+    def filter_in_range(self, ai, candidates):
+        """Remove candidates that exceed agent's remaining range."""
+        at = self.agent_types[ai]
+        max_r = self.max_range[at]
+        remaining = max_r - self.agent_range_used[ai]
+        pos = self.agent_pos[ai]
+        def in_range(c):
+            if c < 0: return True  # base always allowed
+            tp = self._point_pos(c)
+            if tp is None: return True
+            d_to = float(torch.norm(tp - pos))
+            d_back = float(torch.norm(tp - torch.zeros(2)))  # to base
+            return (d_to + d_back) <= remaining * 0.8  # 80% safety margin
+        return [c for c in candidates if in_range(c)]

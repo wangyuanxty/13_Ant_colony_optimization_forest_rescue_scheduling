@@ -70,7 +70,7 @@ def train_a2c(n_episodes=500, log_interval=20, update_steps=10):
             for ai in order:
                 if env.agent_busy[ai]: continue
                 at = env.agent_types[ai]
-                cand = avail[at]
+                cand = env.filter_in_range(ai, avail[at])
                 mask = torch.zeros(n_all, dtype=torch.bool, device=h_enc.device)
                 for c in cand:
                     ci = _env2coord(c, env.n_patrol, env.grid_size, off)

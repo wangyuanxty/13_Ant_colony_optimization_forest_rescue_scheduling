@@ -35,21 +35,22 @@ def random_policy(state, env):
     avail = env.available_actions(); acts = {}
     for ai in range(env.n_agents):
         if env.agent_busy[ai]: continue
-        cand = [c for c in avail[env.agent_types[ai]] if c >= 0]
+        cand = env.filter_in_range(ai, [c for c in avail[env.agent_types[ai]] if c >= 0])
         acts[ai] = random.choice(cand) if cand else -1
     return acts
 
 
 def nearest_policy(state, env):
-    avail = env.available_actions(); acts = {}
+    avail = env.available_actions(); acts = {}; taken = set()
     for ai in range(env.n_agents):
         if env.agent_busy[ai]: continue
         at = env.agent_types[ai]
-        cand = [c for c in avail[at] if c >= 0]
+        cand = env.filter_in_range(ai, [c for c in avail[at] if c >= 0 and c not in taken])
         if not cand: acts[ai] = -1; continue
         pos = env.agent_pos[ai]
-        acts[ai] = min(cand, key=lambda c: float(
-            torch.norm(env._point_pos(c) - pos)))
+        best = min(cand, key=lambda c: float(torch.norm(env._point_pos(c) - pos)))
+        taken.add(best)
+        acts[ai] = best
     return acts
 
 
@@ -61,7 +62,7 @@ def make_trained_fn(policy, device):
         n_all = coords.shape[0]
         for ai in range(env.n_agents):
             if env.agent_busy[ai]: continue
-            at = env.agent_types[ai]; cand = avail[at]
+            at = env.agent_types[ai]; cand = env.filter_in_range(ai, avail[at])
             mask = torch.zeros(n_all, dtype=torch.bool, device=h_enc.device)
             for c in cand:
                 ci = _env2coord(c, env.n_patrol, env.grid_size, off)
@@ -81,12 +82,12 @@ if __name__ == '__main__':
 
     print("Baselines (10 test episodes each):")
     r = run_eval(env, random_policy)
-    print(f"  Random:  ext={r['ext'][0]:.0f}±{r['ext'][1]:.0f} "
-          f"cov={r['cov'][0]:.0f} dam={r['dam'][0]:.0f}")
+    print(f"  Random:  dam={r['dam'][0]:.0f}±{r['dam'][1]:.0f} "
+          f"dist={r['dist'][0]:.0f}")
 
     n = run_eval(env, nearest_policy)
-    print(f"  Nearest: ext={n['ext'][0]:.0f}±{n['ext'][1]:.0f} "
-          f"cov={n['cov'][0]:.0f} dam={n['dam'][0]:.0f}")
+    print(f"  Nearest: dam={n['dam'][0]:.0f}±{n['dam'][1]:.0f} "
+          f"dist={n['dist'][0]:.0f}")
 
     best_path = os.path.join(os.path.dirname(__file__), "decoder_best.pth")
     if os.path.exists(best_path):
@@ -94,11 +95,11 @@ if __name__ == '__main__':
         pol = RescuePolicy(device=device)
         pol.decoder.load_state_dict(torch.load(best_path, map_location=device))
         t = run_eval(env, make_trained_fn(pol, device))
-        print(f"  Trained: ext={t['ext'][0]:.0f}±{t['ext'][1]:.0f} "
-              f"cov={t['cov'][0]:.0f} dam={t['dam'][0]:.0f}")
-        print(f"  vs Random: ext={t['ext'][0]/r['ext'][0]*100:.0f}% "
-              f"dam={100-t['dam'][0]/r['dam'][0]*100:.0f}% better")
-        print(f"  vs Nearest: ext={t['ext'][0]/n['ext'][0]*100:.0f}% "
-              f"dam={100-t['dam'][0]/n['dam'][0]*100:.0f}% better")
+        print(f"  Trained: dam={t['dam'][0]:.0f}±{t['dam'][1]:.0f} "
+              f"dist={t['dist'][0]:.0f}")
+        print(f"  vs Random: dam={t['dam'][0]/r['dam'][0]*100:.0f}% "
+              f"dist={t['dist'][0]/r['dist'][0]*100:.0f}%")
+        print(f"  vs Nearest: dam={t['dam'][0]/n['dam'][0]*100:.0f}% "
+              f"dist={t['dist'][0]/n['dist'][0]*100:.0f}%")
     else:
         print("\nNo trained checkpoint yet. Train first.")
