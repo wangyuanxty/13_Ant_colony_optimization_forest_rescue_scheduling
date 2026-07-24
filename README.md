@@ -139,11 +139,11 @@ A2C 策略以 121 次灭火（+23%）和更低火灾损失（−4%）超越了�
 
 ## 5. 开放问题分析
 
-| # | 开放问题 | 工作 |
-|---|---------|------|
-| 1 | 异构多智能体协同 | 设计 RL 环境（3 类智能体），A2C 学出优于 rule-based 的调度策略 |
-| 2 | 多警报+火势蔓延 | 纳入环境（每步随机起火 + 4-邻居扩散），A2C 策略完成灭火 |
-| 3 | 动态天气 | `mask` 机制可处理（禁飞边直接 mask），IACO 和 CNN-Transformer 均适配 |
+| # | 开放问题 | 原文出处 | 工作 |
+|---|---------|---------|------|
+| 1 | 异构多智能体协同 | Section 4.5(1): *"without considering collaborative scheduling with backup drones or ground-based rescue forces"*; Section 4.5(2): *"helicopter-UAV cooperative rescue networks, leveraging UAV agility for reconnaissance while helicopters handle material transportation. This requires addressing challenges related to heterogeneous device communication protocols and task allocation."* | 设计 RL 环境（3 类智能体），A2C 学出优于 rule-based 的调度策略 |
+| 2 | 多警报+火势蔓延 | Section 4.5(1): *"the experimental scenarios only address single emergency incidents, without simulating multiple simultaneous alerts or cascading effects (such as secondary disasters caused by fire spread)."* | 纳入环境（每步随机起火 + 4-邻居扩散），A2C 策略完成灭火 |
+| 3 | 动态天气 | Section 4.5(1): *"the model assumes a static geographic environment, neglecting impacts on helicopter flights from weather variations and dynamic terrain changes."* | `mask` 机制可处理（禁飞边直接 mask），IACO 和 CNN-Transformer 均适配 |
 
 
 ---
