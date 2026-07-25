@@ -19,7 +19,8 @@ class ForestRescueEnv:
                             + ['ground'] * n_ground)
         self.speeds = {'drone': 120., 'heli': 60., 'ground': 10.}
         self.max_range = {'drone': 9999., 'heli': 9999., 'ground': 9999.}
-        self.grid_size = 8; self.max_t = 100
+        self.grid_size = 8
+        self.max_t = 200
 
     def reset(self, n_patrol=None, n_drones=None, n_helis=None, n_ground=None,
               fire_prob=0.01, spread_prob=0.3):
@@ -46,10 +47,11 @@ class ForestRescueEnv:
         # Weather: no-fly edges
         self.no_fly_edges = set()
         # Stats
-        self.t = 0; self.max_t = 200
+        self.t = 0
         self.fires_extinguished = 0; self.fire_damage = 0.0
         self.flight_dist = 0.0; self.patrol_covered = 0
         self._prev_covered = 0; self._prev_ext = 0
+        self._step_transport = 0; self._step_discover = 0
         return self._get_state()
 
     def step(self, actions: Dict[int, int]):
@@ -102,13 +104,16 @@ class ForestRescueEnv:
 
         # Per-step reward
         r_step = 0.0
-        r_step += (self.patrol_covered - self._prev_covered) * 300.0
-        r_step += (self.fires_extinguished - self._prev_ext) * 300.0
-        r_step -= self.fire_grid.sum().item() * 0.1
-        r_step -= 0.01
-        r_step += len(actions) * 0.5
+        r_step += (self.patrol_covered - self._prev_covered) * 100.0
+        r_step += (self.fires_extinguished - self._prev_ext) * 200.0
+        r_step -= self.fire_grid.sum().item() * 3.0
+        r_step -= 1.0
+        r_step += len(actions) * 2.0
+        r_step += self._step_transport * 100.0       # heli transport done
+        r_step += self._step_discover * 50.0          # drone fire discovery
         self._prev_covered = self.patrol_covered
         self._prev_ext = self.fires_extinguished
+        self._step_transport = 0; self._step_discover = 0
 
         self.t += 1
         done = self.t >= self.max_t
@@ -120,16 +125,16 @@ class ForestRescueEnv:
 
     def _on_arrival(self, ai):
         t = self.agent_types[ai]; ti = self.agent_target[ai]
-        if ti < 0:  # arrived at base — reset range
-            self.agent_range_used[ai] = 0.0
         gx, gy = self._grid(self.agent_pos[ai])
         _DEBUG = False
         if _DEBUG: print(f"  _on_arrival: ai={ai} type={t} target={ti} pos={(gx,gy)} grid_fire={self.fire_grid[gx,gy].item()}")
         if t == 'drone' and ti < self.n_patrol and not self.patrol_visited[ti]:
             self.patrol_visited[ti] = True; self.patrol_covered += 1
+            if self.fire_grid[gx, gy] > 0: self._step_discover += 1  # fire discovered!
         elif t == 'heli':
-            if self.fire_grid[gx, gy] > 0:
+            if self.fire_grid[gx, gy] > 0 and not self.transport_done[gx, gy]:
                 self.transport_done[gx, gy] = True
+                self._step_transport += 1
                 if _DEBUG: print(f"    transport_done[{gx},{gy}]=True")
         elif t == 'ground':
             gx, gy = self._grid(self.agent_pos[ai])

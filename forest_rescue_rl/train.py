@@ -76,7 +76,7 @@ def train(n_episodes=1000, log_interval=50):
                 pid = off['agents'][0] + ai
                 tc, lp = policy.act(h_enc, pid, policy.TYPE[at], mask)
                 log_probs.append(lp)
-                if tc != 0: taken.add(tc)
+                taken.add(tc)
                 actions[ai] = _c2e(tc, env.n_patrol, off)
             state, reward, done, info = env.step(actions)
             rewards.append(reward)
