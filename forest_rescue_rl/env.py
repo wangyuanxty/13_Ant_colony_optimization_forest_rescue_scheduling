@@ -102,8 +102,8 @@ class ForestRescueEnv:
 
         # Per-step reward
         r_step = 0.0
-        r_step += (self.patrol_covered - self._prev_covered) * 50.0
-        r_step += (self.fires_extinguished - self._prev_ext) * 500.0
+        r_step += (self.patrol_covered - self._prev_covered) * 300.0
+        r_step += (self.fires_extinguished - self._prev_ext) * 300.0
         r_step -= self.fire_grid.sum().item() * 0.1
         r_step -= 0.01
         r_step += len(actions) * 0.5
@@ -115,7 +115,6 @@ class ForestRescueEnv:
         info = {'extinguished': self.fires_extinguished, 'damage': self.fire_damage,
                 'dist': self.flight_dist, 'covered': self.patrol_covered}
         return self._get_state(), r_step, done, info
-        return self._get_state(), reward, done, info
 
     # ── internal ──
 
