@@ -2,7 +2,7 @@
 
 > 原论文：*Scheduling and Route Planning for Forests Rescue: Applications with a Novel Ant Colony Optimization Algorithm* (Engineering Applications of Artificial Intelligence, 2025)
 >
-> 本实验代码仓库：[https://github.com/wangyuanxty/13_Ant_colony_optimization_forest_rescue_scheduling](https://github.com/wangyuanxty/13_Ant_colony_optimization_forest_rescue_scheduling)
+> 本实验代码仓库：<https://github.com/wangyuanxty/13_Ant_colony_optimization_forest_rescue_scheduling>
 
 ## 1. 问题背景
 
