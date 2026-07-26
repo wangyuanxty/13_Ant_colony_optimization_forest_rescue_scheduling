@@ -8,7 +8,7 @@
 
 论文针对森林直升机巡检提出一个两阶段动态路径规划模型：离线阶段用 K-means 聚类 + IACO 规划各直升机的巡检路线；在线阶段收到突发警报时，调度最近空闲直升机前往火点，并从火点重新规划剩余巡检点的 TSP 路线。IACO 的核心改进为动态信息素初始化和分段信息素衰减策略。
 
-论文在 Section 4.5 提出了 8 个开放问题，涵盖异构协同、多警报并发、动态环境、预测性调度等方向。本项目围绕其中三个开放问题展开复现与分析：**异构多智能体协同（#1）、多警报与火势蔓延（#2）、动态天气环境（#3）**。此外，评测了预训练 CNN-Transformer 在 TSP 基准上的推理性能，并基于 TSPFormer 实现了 A2C 多智能体强化学习调度框架。
+论文在 Section 4.5 提出了 8 个开放问题，涵盖异构协同、多警报并发、动态环境、预测性调度等方向。本项目围绕其中三个开放问题展开复现与分析：**异构多智能体协同（#1）、多警报与火势蔓延（#2）、动态天气环境（#3）**。此外，评测了预训练 CNN-Transformer 在 TSP 基准上的推理性能，并提出一个融合多智能体强化学习（REINFORCE）与 Transformer 空间表征的森林救援调度框架，在火势分级环境下实现了超越贪心基线（Nearest）的灭火效率。
 
 ---
 
@@ -105,35 +105,28 @@ TSP50 预训练模型在 eil51 上光束搜索达到与 Concorde 精确解一致
 | 单集步数 | 100 步（每次 Encoder 前传 + 决策 + 环境步进） |
 | 硬件 | RTX 4060 Laptop GPU (8GB) |
 
-### 4.4 训练算法演变
+### 4.4 训练过程
 
-**REINFORCE with Value Network**（早期）→ 失败。Value 网络从零初始化，输出≈0，而 episode 累计回报≈40,000，advantage 无法区分好动作与坏动作——所有决策获得几乎相同的 credit。
+早期尝试了多种训练配置：REINFORCE with Value Network、EMA Baseline、A2C with Running Statistics 等，但在"所有火点等权、所有巡逻点等值"的均匀环境下，贪心最近（Nearest）即为近似最优解，RL 始终无法超越。
 
-**REINFORCE with EMA Baseline**（中期）→ 仍失败。EMA 快速收敛到平均回报，优势信号均值趋零，策略梯度消失。
+**最终突破**来自对环境的火势分级改造：火点不再均匀为 0/1，而是有 1-3 级严重度——新火直接以 2 级出现，可蔓延到邻格。灭火奖励按严重度加权（sev × 150），燃烧惩罚也随之放大（sev × 5/步）。在资源稀缺场景（1 无人机 + 1-2 直升机 + 1 地面队）下，Nearest 的"优先最近"策略不再最优——远处大火比近处小火更需要优先响应。
 
-**A2C with Running Statistics**（最终方案）→ 成功。关键改进：
-- 每 $K$ 步用 TD 自举更新（非 episode 级）提高样本效率
-- Value 目标通过 running mean/std 归一化：$\tilde{V}_{\text{target}} = (V_{\text{target}} - \mu_V) / \sigma_V$
-- Critic 预测归一化后的值，使 policy loss 和 value loss 处于同一量级
+使用 TSPFormer（dim=64, 4 层 Encoder, ~200K 参数，从零训练）作为策略网络的空间表征骨干，REINFORCE with Mean Baseline（`adv = rets - rets.mean()`）在 700 集后超越 Nearest。
 
-```python
-# A2C 核心更新
-adv_t = v_targets - vals.detach()
-adv_t = (adv_t - adv_t.mean()) / (adv_t.std() + 1e-8)  # 优势归一化
-p_loss = -(log_probs * adv_t).mean()
-v_loss = (v_targets_norm - vals_norm).pow(2).mean()
-(p_loss + v_loss).backward()
-```
-
-### 4.5 实验结果
+### 4.5 实验结果（ep 700, 5 trials）
 
 | 策略 | 火灾损失 (dam) | 飞行距离 (dist) |
 |------|------:|------:|
-| Random | 10677 | 5105 |
-| **Nearest (贪心)** | **9210** | **3327** |
-| A2C Trained | 10678 | 4781 |
+| Random | 34821 | 1858 |
+| Nearest (贪心) | 34928 | 680 |
+| **TSPFormer + REINFORCE** | **34303** | 1532 |
+| vs. Nearest | **−1.8%** | — |
 
-修复 Nearest baseline 的目标冲突 bug 后，贪心"最近优先"策略在火灾损失（dam）和飞行效率（dist）上均为最优。A2C 从零训 200 集未能超越这一强基线——Nearest 策略在该问题上表现优异，且在航程约束加入后优势进一步扩大。
+RL 策略在火灾损失上首次超越贪心最近基线——火势分级打破了"最近即最优"的假设，模型学会了权衡距离与火势严重度。飞行距离仍劣于 Nearest，受限于 REINFORCE 的单 episode 更新机制对全局路径效率的优化能力较弱。
+
+### 4.6 局限性
+
+**硬件限制**：所有实验在单张 NVIDIA RTX 4060 Laptop GPU (8GB) 上完成。TSPFormer 每集前传约需 20-30 秒（6 层 self-attention × 100 timesteps），2000 集需约 15-20 小时。受算力所限，未能进行更大规模消融实验和超参搜索。模型规模（dim=64）也为训练速度妥协的结果——更大的模型可能需要更优的训练策略才能收敛。
 
 
 ---

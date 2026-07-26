@@ -18,7 +18,7 @@ class ForestRescueEnv:
         self.agent_types = (['drone'] * n_drones + ['heli'] * n_helis
                             + ['ground'] * n_ground)
         self.speeds = {'drone': 120., 'heli': 60., 'ground': 10.}
-        self.max_range = {'drone': 9999., 'heli': 9999., 'ground': 9999.}
+        self.max_range = {'drone': 400., 'heli': 600., 'ground': 9999.}
         self.grid_size = 8
         self.max_t = 200
 
@@ -50,8 +50,9 @@ class ForestRescueEnv:
         self.t = 0
         self.fires_extinguished = 0; self.fire_damage = 0.0
         self.flight_dist = 0.0; self.patrol_covered = 0
-        self._prev_covered = 0; self._prev_ext = 0
-        self._step_transport = 0; self._step_discover = 0
+        self._prev_covered = 0; self._prev_ext = 0; self._prev_dist = 0
+        self._step_transport = 0; self._step_discover = 0; self._step_ext_sev = 0; self._step_ext_sev = 0
+        self._step_transport = 0; self._step_discover = 0; self._step_ext_sev = 0
         return self._get_state()
 
     def step(self, actions: Dict[int, int]):
@@ -84,9 +85,10 @@ class ForestRescueEnv:
                 self.flight_dist += sp
                 self.agent_range_used[i] += sp
 
-        # Fire ignition + spread
-        self.fire_grid += (torch.rand(self.grid_size, self.grid_size) < self.fire_prob).float()
-        self.fire_grid = torch.clamp(self.fire_grid, 0, 1)
+        # Fire ignition + spread (severity 1-3)
+        new = torch.rand(self.grid_size, self.grid_size) < self.fire_prob
+        self.fire_grid += new.float() * 2.0
+        self.fire_grid = torch.clamp(self.fire_grid, 0, 3)
         # Spread
         spread = torch.rand(self.grid_size, self.grid_size) < self.spread_prob
         for gx in range(self.grid_size):
@@ -96,7 +98,7 @@ class ForestRescueEnv:
                         nx, ny = gx + dx, gy + dy
                         if 0 <= nx < self.grid_size and 0 <= ny < self.grid_size:
                             if spread[nx, ny]:
-                                self.fire_grid[nx, ny] = 1.0
+                                self.fire_grid[nx, ny] = max(self.fire_grid[nx, ny], 1.0)
         self.fire_damage += self.fire_grid.sum().item()
 
         # Weather
@@ -105,15 +107,17 @@ class ForestRescueEnv:
         # Per-step reward
         r_step = 0.0
         r_step += (self.patrol_covered - self._prev_covered) * 100.0
-        r_step += (self.fires_extinguished - self._prev_ext) * 200.0
-        r_step -= self.fire_grid.sum().item() * 3.0
+        r_step += self._step_ext_sev * 150.0  # severity-weighted extinguish
+        r_step -= self.fire_grid.sum().item() * 5.0  # severity-weighted penalty
         r_step -= 1.0
         r_step += len(actions) * 2.0
         r_step += self._step_transport * 100.0       # heli transport done
         r_step += self._step_discover * 50.0          # drone fire discovery
+        r_step -= (self.flight_dist - self._prev_dist) * 5.0  # distance penalty
         self._prev_covered = self.patrol_covered
         self._prev_ext = self.fires_extinguished
-        self._step_transport = 0; self._step_discover = 0
+        self._prev_dist = self.flight_dist
+        self._step_transport = 0; self._step_discover = 0; self._step_ext_sev = 0
 
         self.t += 1
         done = self.t >= self.max_t
@@ -139,6 +143,7 @@ class ForestRescueEnv:
         elif t == 'ground':
             gx, gy = self._grid(self.agent_pos[ai])
             if self.fire_grid[gx, gy] > 0 and self.transport_done[gx, gy]:
+                self._step_ext_sev += self.fire_grid[gx, gy].item()
                 self.fire_grid[gx, gy] = 0.0; self.fires_extinguished += 1
         self.agent_busy[ai] = False; self.agent_target[ai] = -1
 
@@ -208,9 +213,9 @@ class ForestRescueEnv:
                         tn.append(idx)
                     else:
                         fr.append(idx)
-        return {'drone': uv,
-                'heli': tn,
-                'ground': fr}
+        return {'drone': uv + [-1],
+                'heli': tn + [-1],
+                'ground': fr + [-1]}
 
     def filter_in_range(self, ai, candidates):
         """Remove candidates that exceed agent's remaining range."""

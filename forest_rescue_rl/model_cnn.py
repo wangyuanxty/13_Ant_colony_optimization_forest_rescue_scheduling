@@ -1,5 +1,5 @@
 """
-Policy: small TSPFormer (dim=64, 4 enc layers, from scratch) + trainable Decoder.
+Policy: CNN-Transformer Encoder (pretrained, frozen, dim=128) + trainable Decoder.
 """
 import sys, os
 import torch
@@ -7,12 +7,12 @@ import torch.nn as nn
 from torch.distributions import Categorical
 
 BASE = os.path.dirname(os.path.dirname(__file__))
-sys.path.insert(0, os.path.join(BASE, "tspFormer", "tspformer"))
-from tspformer.transNet import Tspformer
+sys.path.insert(0, os.path.join(BASE, "CNN_Transformer3"))
+from model_search import TSP_net
 
 
 class RescueDecoder(nn.Module):
-    def __init__(self, dim=64, dim_type=16):
+    def __init__(self, dim=128, dim_type=32):
         super().__init__()
         self.t_emb = nn.Embedding(3, dim_type)
         self.mlp = nn.Sequential(
@@ -29,24 +29,36 @@ class RescuePolicy:
     TYPE = {'drone': 0, 'heli': 1, 'ground': 2}
 
     def __init__(self, device='cuda'):
-        self.device = device; self.dim = 64
-        self.net = Tspformer(
-            dim_input_nodes=2, dim_emb=64, dim_ff=128,
-            nb_layers_encoder=4, nb_layers_decoder=2,
-            nb_heads=4, max_len_PE=500, batchnorm=False
-        ).to(device)
-        self.decoder = RescueDecoder(dim=64).to(device)
-        self.opt = torch.optim.Adam(
-            list(self.net.parameters()) + list(self.decoder.parameters()), lr=1e-4
-        )
+        self.device = device; self.dim = 128
+        ckpt_path = os.path.join(BASE, "CNN_Transformer3", "checkpoint", "tsp100_cnn_m5.pkl")
+        args = DotDict(embedding='conv', nb_neighbors=10, kernel_size=11,
+                       dim_input_nodes=2, dim_emb=128, dim_ff=512,
+                       nb_layers_encoder=6, nb_layers_decoder=2,
+                       nb_heads=8, max_len_PE=1000, segm_len=5, batchnorm=True)
+        net = TSP_net(args.embedding, args.nb_neighbors, args.kernel_size,
+                      args.dim_input_nodes, args.dim_emb, args.dim_ff,
+                      args.nb_layers_encoder, args.nb_layers_decoder,
+                      args.nb_heads, args.max_len_PE,
+                      segm_len=args.segm_len, batchnorm=args.batchnorm)
+        ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
+        net.load_state_dict(ckpt['model_baseline']); net.to(device)
+        self.input_emb = net.input_emb; self.encoder = net.encoder
+        self.sp = net.start_placeholder
+        for p in self.input_emb.parameters(): p.requires_grad = False
+        for p in self.encoder.parameters(): p.requires_grad = False
+        for m in self.encoder.modules():
+            if isinstance(m, nn.BatchNorm1d): m.track_running_stats = False
+        self.encoder.eval()
+        self.decoder = RescueDecoder(dim=self.dim).to(device)
+        self.opt = torch.optim.Adam(self.decoder.parameters(), lr=1e-4)
 
     def encode(self, coords):
         x = coords.unsqueeze(0).to(self.device)
-        h = self.net.input_emb(x)
+        h = self.input_emb(x)
         bsz, N, _ = h.shape
-        h = torch.cat([h, self.net.start_placeholder.repeat(bsz, 1, 1)], dim=1)
-        h = self.net.encoder(h)
-        return h[:, :N, :]
+        h = torch.cat([h, self.sp.repeat(bsz, 1, 1)], dim=1)
+        h_enc, _ = self.encoder(h)
+        return h_enc[:, :N, :]
 
     def act(self, h_enc, pos_idx, type_idx, mask, eps=0.05):
         if mask.sum() == 0:
@@ -71,3 +83,7 @@ class RescuePolicy:
         inf = torch.tensor(float('-inf'), device=logits.device)
         logits = torch.where(mask, logits, inf)
         return logits.argmax().item()
+
+
+class DotDict(dict):
+    def __init__(self, **kwds): self.update(kwds); self.__dict__ = self

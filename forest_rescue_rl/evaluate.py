@@ -9,7 +9,7 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from forest_rescue_rl.env import ForestRescueEnv
 from forest_rescue_rl.model import RescuePolicy
-from forest_rescue_rl.train import build_coords_fixed, _env2coord, _coord2env
+from forest_rescue_rl.train import build_coords_fixed, _e2c, _c2e
 
 SEED = 42; N_EP = 10
 
@@ -66,13 +66,13 @@ def make_trained_fn(policy, device):
             at = env.agent_types[ai]; cand = env.filter_in_range(ai, avail[at])
             mask = torch.zeros(n_all, dtype=torch.bool, device=h_enc.device)
             for c in cand:
-                ci = _env2coord(c, env.n_patrol, env.grid_size, off)
+                ci = _e2c(c, env.n_patrol, env.grid_size, off)
                 if ci >= 0 and ci not in taken: mask[ci] = True
             pid = off['agents'][0] + ai
             if mask.sum() == 0: continue
             ci = policy.act_greedy(h_enc, pid, policy.TYPE[at], mask)
             if ci != 0: taken.add(ci)
-            acts[ai] = _coord2env(ci, env.n_patrol, off)
+            acts[ai] = _c2e(ci, env.n_patrol, off)
         return acts
     return fn
 

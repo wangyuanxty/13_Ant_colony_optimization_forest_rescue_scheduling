@@ -17,7 +17,7 @@ def build_coords_fixed(env):
     fg = [[env._coord(gx,gy) for gy in range(gs)] for gx in range(gs)]
     parts.append(torch.tensor([c for row in fg for c in row], dtype=torch.float32))
     parts.append(env.agent_pos.clone())
-    coords = torch.cat(parts, dim=0).float()
+    coords = torch.cat(parts, dim=0).float() / env.world_size
     return coords, {'patrol': (1, 1+n_p), 'fire_grid': (1+n_p, 1+n_p+n_g),
                     'agents': (1+n_p+n_g, 1+n_p+n_g+env.n_agents)}
 
@@ -54,8 +54,8 @@ def train(n_episodes=1000, log_interval=50):
         print(f"Resumed from ep {start_ep}"); del ckpt
 
     for ep in range(start_ep, n_episodes):
-        state = env.reset(n_patrol=random.randint(15,30), n_drones=random.randint(1,2),
-                          n_helis=random.randint(2,3), n_ground=random.randint(1,2),
+        state = env.reset(n_patrol=random.randint(15,30), n_drones=random.randint(1,1),
+                          n_helis=random.randint(1,2), n_ground=random.randint(1,1),
                           fire_prob=0.05, spread_prob=0.5)
         log_probs, rewards = [], []
         for _ in range(env.max_t):
@@ -106,7 +106,8 @@ def train(n_episodes=1000, log_interval=50):
             best_loss = p_loss.item()
             torch.save(policy.decoder.state_dict(), os.path.join(BASE, "forest_rescue_rl", "decoder_best.pth"))
         if ep % 50 == 0:
-            torch.save({'net': policy.net.state_dict(), 'decoder': policy.decoder.state_dict(),
+            torch.save({'net': policy.net.state_dict(),
+                        'decoder': policy.decoder.state_dict(),
                         'opt': policy.opt.state_dict(),
                         'best_loss': best_loss, 'hist': hist, 'ep': ep}, ckpt_path)
         torch.cuda.empty_cache()
