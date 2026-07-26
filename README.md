@@ -97,10 +97,10 @@ TSP50 预训练模型在 eil51 上光束搜索达到与 Concorde 精确解一致
 | 组件 | 规格 |
 |------|------|
 | 地图 | $100 \times 100$ km，8×8 火势网格 |
-| 无人机 × 2~4 | 仅侦察，120 km/h |
-| 直升机 × 2~3 | 仅运输设备到火点，60 km/h |
-| 地面队 × 2~3 | 仅灭火（需先完成运输），10 km/h |
-| 火势 | 每步每格 $p=0.01$ 随机起火，$p=0.3$ 向邻格蔓延 |
+| 无人机 × 1 | 仅侦察，120 km/h |
+| 直升机 × 1~2 | 仅运输设备到火点，60 km/h |
+| 地面队 × 1 | 仅灭火（需先完成运输），10 km/h |
+| 火势 | 每步每格 $p=0.05$ 随机起火，$p=0.5$ 蔓延；三级严重度（1-3），新火 2 级起 |
 | 天气 | 每步 $p=0.1$ 随机产生一个禁飞圆域 |
 | 单集步数 | 100 步（每次 Encoder 前传 + 决策 + 环境步进） |
 | 硬件 | RTX 4060 Laptop GPU (8GB) |
@@ -135,8 +135,8 @@ RL 策略在火灾损失上首次超越贪心最近基线——火势分级打�
 
 | # | 开放问题 | 原文出处 | 工作 |
 |---|---------|---------|------|
-| 1 | 异构多智能体协同 | Section 4.5(1): *"without considering collaborative scheduling with backup drones or ground-based rescue forces"*; Section 4.5(2): *"helicopter-UAV cooperative rescue networks, leveraging UAV agility for reconnaissance while helicopters handle material transportation. This requires addressing challenges related to heterogeneous device communication protocols and task allocation."* | 设计 RL 环境（3 类智能体），A2C 学出优于 rule-based 的调度策略 |
-| 2 | 多警报+火势蔓延 | Section 4.5(1): *"the experimental scenarios only address single emergency incidents, without simulating multiple simultaneous alerts or cascading effects (such as secondary disasters caused by fire spread)."* | 纳入环境（每步随机起火 + 4-邻居扩散），A2C 策略完成灭火 |
+| 1 | 异构多智能体协同 | Section 4.5(1): *"without considering collaborative scheduling with backup drones or ground-based rescue forces"*; Section 4.5(2): *"helicopter-UAV cooperative rescue networks, leveraging UAV agility for reconnaissance while helicopters handle material transportation. This requires addressing challenges related to heterogeneous device communication protocols and task allocation."* | 设计 RL 环境（3 类智能体），REINFORCE 学出优于贪心基线的调度策略 |
+| 2 | 多警报+火势蔓延 | Section 4.5(1): *"the experimental scenarios only address single emergency incidents, without simulating multiple simultaneous alerts or cascading effects (such as secondary disasters caused by fire spread)."* | 纳入环境（每步随机起火 + 4-邻居扩散 + 火势分级），REINFORCE 策略完成灭火 |
 | 3 | 动态天气 | Section 4.5(1): *"the model assumes a static geographic environment, neglecting impacts on helicopter flights from weather variations and dynamic terrain changes."* | `mask` 机制可处理（禁飞边直接 mask），IACO 和 CNN-Transformer 均适配 |
 
 
@@ -156,7 +156,7 @@ RL 策略在火灾损失上首次超越贪心最近基线——火势分级打�
 ├── forest_rescue_rl/
 │   ├── env.py         # 森林救援环境 (火势、天气、3 类智能体)
 │   ├── model.py       # 策略模型 (Encoder + Decoder)
-│   ├── train.py       # A2C 训练循环
+│   ├── train.py       # REINFORCE 训练循环
 │   ├── evaluate.py    # Random vs Nearest vs Trained 对比
 │   ├── diag.py        # 环境诊断脚本
 │   └── training_curves.png  # 训练曲线 (Policy Loss, Value Loss, ext/cov/dam/dist)
@@ -171,11 +171,11 @@ python aco_benchmark.py
 # CNN-Transformer 推理 (需 GPU)
 D:\anaconda\envs\py312\python.exe cnn_transformer_test.py
 
-# A2C 训练 (需 GPU)
+# REINFORCE 训练 (需 GPU)
 D:\anaconda\envs\py312\python.exe -u -c "
 import sys; sys.path.insert(0, '.')
-from forest_rescue_rl.train import train_a2c
-train_a2c(n_episodes=200, log_interval=20)
+from forest_rescue_rl.train import train
+train(n_episodes=700, log_interval=50)
 "
 
 # 评估
